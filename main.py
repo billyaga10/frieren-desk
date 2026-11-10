@@ -64,6 +64,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMenu,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -73,6 +74,7 @@ from PySide6.QtWidgets import (
 )
 
 from codex_backend import CodexBackend, CodexResult
+from needs_manager import NeedsManager
 from sprite_helper import IDLE_POSES, PLEASED_POSES, TALKING_POSES, THINKING_POSES, ensure_sprites
 
 
@@ -109,6 +111,10 @@ STATE_DEFAULT_EMOTION: Dict[str, str] = {
     "talking_explain": "antusias",
     "pleased": "tersentuh",
     "pleased_wave": "ceria",
+    "needs_tea": "hangat",
+    "needs_hungry": "penasaran",
+    "needs_sleepy": "mengantuk",
+    "needs_stretch": "antusias",
 }
 
 
@@ -630,6 +636,9 @@ class SpeechBubble(QFrame):
     historyToggled = Signal(bool)
     outputToggled = Signal(bool)
     agentToggled = Signal(bool)
+    needsToggled = Signal(bool)
+    needReplenishRequested = Signal(str)
+    careAllRequested = Signal()
     minimizeRequested = Signal()
     typingFinished = Signal()
     bubbleDragDeltaY = Signal(int)
@@ -642,6 +651,7 @@ class SpeechBubble(QFrame):
         history_enabled: bool = False,
         output_enabled: bool = False,
         agent_enabled: bool = True,
+        needs_enabled: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -653,6 +663,7 @@ class SpeechBubble(QFrame):
         self.history_enabled = history_enabled
         self.output_enabled = output_enabled
         self.agent_enabled = agent_enabled
+        self.needs_enabled = needs_enabled
         self._bubble_drag_last_y: Optional[int] = None
 
         self._full_text = ""
@@ -736,6 +747,17 @@ class SpeechBubble(QFrame):
         self.sound_btn.setToolTip("Aktifkan / Nonaktifkan Suara Ketikan Frieren")
         self.sound_btn.clicked.connect(self._on_sound_btn_clicked)
 
+        # 5. Needs & Wellness Drawer Button (🍵)
+        self.needs_btn = QPushButton("🍵", self.tools_panel)
+        self.needs_btn.setObjectName("iconToggleBtn")
+        self.needs_btn.setCheckable(True)
+        self.needs_btn.setChecked(self.needs_enabled)
+        self.needs_btn.setFixedSize(22, 20)
+        self.needs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.needs_btn.setToolTip("Tampilkan / Sembunyikan Status Kebutuhan & Perhatian Frieren (🍵)")
+        self.needs_btn.clicked.connect(self._on_needs_btn_clicked)
+
+        tools_layout.addWidget(self.needs_btn)
         tools_layout.addWidget(self.agent_btn)
         tools_layout.addWidget(self.output_btn)
         tools_layout.addWidget(self.history_btn)
@@ -749,7 +771,7 @@ class SpeechBubble(QFrame):
         self.tools_toggle_btn.setChecked(False)
         self.tools_toggle_btn.setFixedSize(20, 20)
         self.tools_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.tools_toggle_btn.setToolTip("Buka / Collapse Tombol Pengaturan Cepat (⚡ 💻 📜 🔊)")
+        self.tools_toggle_btn.setToolTip("Buka / Collapse Tombol Pengaturan Cepat (🍵 ⚡ 💻 📜 🔊)")
         self.tools_toggle_btn.clicked.connect(self._on_tools_toggle_clicked)
 
         # 5. Minimize Bubble Button (—)
@@ -795,6 +817,77 @@ class SpeechBubble(QFrame):
         self.output_box.setVisible(self.output_enabled)
         layout.addWidget(self.output_box)
 
+        # Interactive Needs & Wellness Panel (🍵)
+        self.needs_panel = QFrame(self)
+        self.needs_panel.setObjectName("needsPanel")
+        needs_panel_layout = QVBoxLayout(self.needs_panel)
+        needs_panel_layout.setContentsMargins(8, 8, 8, 8)
+        needs_panel_layout.setSpacing(6)
+
+        needs_header = QHBoxLayout()
+        needs_title = QLabel("🍵 Kebutuhan Frieren", self.needs_panel)
+        needs_title.setObjectName("needsTitle")
+        care_all_btn = QPushButton("✨ Care All", self.needs_panel)
+        care_all_btn.setObjectName("needsCareAllBtn")
+        care_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        care_all_btn.setToolTip("Penuhi semua kebutuhan Frieren sekaligus")
+        care_all_btn.clicked.connect(self.careAllRequested.emit)
+        needs_header.addWidget(needs_title)
+        needs_header.addStretch(1)
+        needs_header.addWidget(care_all_btn)
+        needs_panel_layout.addLayout(needs_header)
+
+        self.needs_bars: Dict[str, QProgressBar] = {}
+        items_def = [
+            ("thirst", "☕ Haus", "#64B5F6", "+ Teh"),
+            ("hunger", "🍰 Lapar", "#FFB74D", "+ Makan"),
+            ("energy", "💤 Energi", "#BA68C8", "+ Tidur"),
+            ("freshness", "🌿 Segar", "#81C784", "+ Regang"),
+        ]
+        for key, label_txt, color_hex, btn_txt in items_def:
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            lbl = QLabel(label_txt, self.needs_panel)
+            lbl.setFixedWidth(56)
+            lbl.setObjectName("needsRowLabel")
+
+            bar = QProgressBar(self.needs_panel)
+            bar.setRange(0, 100)
+            bar.setValue(80)
+            bar.setTextVisible(True)
+            bar.setFormat("80%")
+            bar.setFixedHeight(14)
+            bar.setStyleSheet(f"""
+                QProgressBar {{
+                    background-color: rgba(255, 255, 255, 20);
+                    border: 1px solid rgba(255, 255, 255, 30);
+                    border-radius: 6px;
+                    text-align: center;
+                    color: #FFFFFF;
+                    font-size: 9.5px;
+                    font-weight: 600;
+                }}
+                QProgressBar::chunk {{
+                    background-color: {color_hex};
+                    border-radius: 5px;
+                }}
+            """)
+            self.needs_bars[key] = bar
+
+            action_btn = QPushButton(btn_txt, self.needs_panel)
+            action_btn.setObjectName("needsActionBtn")
+            action_btn.setFixedSize(54, 18)
+            action_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            action_btn.clicked.connect(lambda checked=False, k=key: self.needReplenishRequested.emit(k))
+
+            row.addWidget(lbl)
+            row.addWidget(bar, 1)
+            row.addWidget(action_btn)
+            needs_panel_layout.addLayout(row)
+
+        self.needs_panel.setVisible(self.needs_enabled)
+        layout.addWidget(self.needs_panel)
+
         # Loading Spinner Row (shown only while `thinking`)
         self.loading_row = QWidget(self)
         loading_layout = QHBoxLayout(self.loading_row)
@@ -817,6 +910,7 @@ class SpeechBubble(QFrame):
         self.msg_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.msg_scroll.setMinimumHeight(54)
         self.msg_scroll.setMaximumHeight(135)
+        self.msg_scroll.setVisible(not self.history_enabled)
 
         self.text_label = QLabel(
             "Halo... Aku sudah duduk nyaman di pojok layarmu. "
@@ -842,11 +936,11 @@ class SpeechBubble(QFrame):
         label, desc = EMOTION_CATALOG.get(self.current_emotion_key, ("🌸 Senang", ""))
         w = self.width()
 
-        # When toolbar (⚡ 💻 📜 🔊) is expanded on a compact bubble, shorten emotion to emoji or hide title
+        # When toolbar (🍵 ⚡ 💻 📜 🔊) is expanded on a compact bubble, shorten emotion to emoji or hide title
         if self.tools_expanded:
             self.state_badge.setVisible(False)
-            if w < 295:
-                # Show only emoji on ultra-compact width while tools are open
+            if w < 320:
+                # Show only emoji on compact width while tools are open
                 emoji_only = label.split(" ")[0]
                 self.emotion_badge.setText(emoji_only)
             else:
@@ -881,6 +975,30 @@ class SpeechBubble(QFrame):
         self.set_agent_enabled(checked)
         self.agentToggled.emit(checked)
 
+    def _on_needs_btn_clicked(self, checked: bool) -> None:
+        self.set_needs_enabled(checked)
+        self.needsToggled.emit(checked)
+
+    def set_needs_enabled(self, enabled: bool) -> None:
+        self.needs_enabled = enabled
+        self.needs_btn.setChecked(enabled)
+        self.needs_panel.setVisible(enabled)
+        self.adjustSize()
+
+    def update_needs_data(self, data: Dict[str, float]) -> None:
+        """Update progress bars for all tracked needs in the drawer."""
+        for key, bar in self.needs_bars.items():
+            if key in data:
+                val = int(round(data[key]))
+                bar.setValue(val)
+                bar.setFormat(f"{val}%")
+        # Visual alert on the 🍵 button if any need is below 35%
+        is_low = any(data.get(k, 100.0) < 35.0 for k in ("thirst", "hunger", "energy", "freshness"))
+        if is_low and not self.needs_enabled:
+            self.needs_btn.setStyleSheet("background-color: rgba(255, 152, 0, 160); border: 1px solid #FFD54F;")
+        else:
+            self.needs_btn.setStyleSheet("")
+
     def set_sound_enabled(self, enabled: bool) -> None:
         self.sound_player.enabled = enabled
         self.sound_btn.setChecked(enabled)
@@ -890,6 +1008,7 @@ class SpeechBubble(QFrame):
         self.history_enabled = enabled
         self.history_btn.setChecked(enabled)
         self.history_scroll.setVisible(enabled)
+        self.msg_scroll.setVisible(not enabled)
         self.adjustSize()
         if enabled:
             self.scroll_to_bottom()
@@ -929,16 +1048,24 @@ class SpeechBubble(QFrame):
 
         text = re.sub(r"`([^`\n]+)`", _code_repl, escaped)
 
-        # 2. Convert [label](https://...) markdown links into placeholders
+        # 2. Convert [label](url) markdown links (supports https, http, file, and local paths) into placeholders
         link_slots: List[str] = []
 
         def _md_repl(m: re.Match) -> str:
             idx = len(link_slots)
             label, url = m.group(1), m.group(2)
-            link_slots.append(f'<a href="{url}" style="color:#82AAFF; text-decoration:underline;">{label}</a>')
+            href = url
+            # Convert local filesystem absolute paths to file:// URI for native desktop opening
+            if url.startswith("/") or re.match(r"^[a-zA-Z]:[\\/]", url):
+                href = f"file://{url}"
+            link_slots.append(f'<a href="{href}" style="color:#82AAFF; text-decoration:underline;">{label}</a>')
             return f"@@LINK_{idx}@@"
 
-        text = re.sub(r"\[([^\]]+)\]\((https?://[^\s\)]+)\)", _md_repl, text)
+        text = re.sub(
+            r"\[([^\]]+)\]\(((?:https?://|file://|/|[a-zA-Z]:[\\/])[^\s\)]+)\)",
+            _md_repl,
+            text,
+        )
 
         # 3. Convert standalone https://... URLs
         def _url_repl(m: re.Match) -> str:
@@ -1029,6 +1156,10 @@ class SpeechBubble(QFrame):
             "talking_explain": "· menjelaskan ♪",
             "pleased": "· tersenyum ♪",
             "pleased_wave": "· menyapa 👋",
+            "needs_tea": "· butuh teh ☕",
+            "needs_hungry": "· lapar 🍰",
+            "needs_sleepy": "· mengantuk 💤",
+            "needs_stretch": "· peregangan 🌿",
         }
         self._raw_state_text = badge_map.get(state, f"· {state}")
         self.state_badge.setToolTip(f"Aktivitas saat ini: {self._raw_state_text.lstrip('· ')}")
@@ -1062,7 +1193,7 @@ class SpeechBubble(QFrame):
         self.typing_timer.stop()
         self.spinner.stop()
         self.loading_row.setVisible(False)
-        self.msg_scroll.setVisible(True)
+        self.msg_scroll.setVisible(not self.history_enabled)
         self.update_state_badge(state, emotion_override=emotion_override)
 
         if not animate or not text:
@@ -1190,11 +1321,12 @@ class FrierenDeskWindow(QWidget):
         super().__init__()
         self.base_dir = base_dir
         self.backend = CodexBackend(base_dir)
+        self.needs = NeedsManager(base_dir)
         self.config = self.backend.config
 
         win_cfg = self.config.get("window", {})
         self.base_win_w = int(win_cfg.get("width", 360))
-        self.base_win_h = int(win_cfg.get("height", 520))
+        self.base_win_h = int(win_cfg.get("height", 620))
         self.margin_right = int(win_cfg.get("margin_right", 18))
         self.margin_bottom = int(win_cfg.get("margin_bottom", 12))
 
@@ -1209,6 +1341,7 @@ class FrierenDeskWindow(QWidget):
         sound_enabled = bool(ui_cfg.get("sound_enabled", True))
         history_enabled = bool(ui_cfg.get("history_enabled", False))
         output_enabled = bool(ui_cfg.get("output_enabled", False))
+        needs_enabled = bool(ui_cfg.get("needs_enabled", False))
         self.is_minimized = bool(ui_cfg.get("minimized", False))
         self.auto_hide_bubble = bool(ui_cfg.get("auto_hide_bubble", True))
         self.scale_factor: float = float(ui_cfg.get("scale", 1.0))
@@ -1232,7 +1365,7 @@ class FrierenDeskWindow(QWidget):
         self.bubble_hide_timer.timeout.connect(self._on_bubble_autohide_timeout)
 
         self._init_window_flags()
-        self._init_ui(history_enabled=history_enabled, output_enabled=output_enabled)
+        self._init_ui(history_enabled=history_enabled, output_enabled=output_enabled, needs_enabled=needs_enabled)
         self._init_shortcuts_and_tray()
         self.apply_scale(self.scale_factor, save=False, redock=False)
         self.apply_opacity(self.opacity_level, save=False)
@@ -1257,6 +1390,12 @@ class FrierenDeskWindow(QWidget):
         self.idle_cycle_timer.timeout.connect(self._cycle_idle_pose)
         self.idle_cycle_timer.start()
 
+        # Needs & Wellness Tracker Timer (ticks every 60s)
+        self.needs_timer = QTimer(self)
+        self.needs_timer.setInterval(60000)
+        self.needs_timer.timeout.connect(self._on_needs_tick)
+        self.needs_timer.start()
+
         self.clickthrough_timer = QTimer(self)
         self.clickthrough_timer.setInterval(60)
         self.clickthrough_timer.timeout.connect(self._update_mask_and_clickthrough)
@@ -1272,9 +1411,10 @@ class FrierenDeskWindow(QWidget):
             | Qt.WindowType.NoDropShadowWindowHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow, True)
+        if hasattr(Qt.WidgetAttribute, "WA_MacAlwaysShowToolWindow") and sys.platform == "darwin":
+            self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow, True)
 
-    def _init_ui(self, history_enabled: bool, output_enabled: bool) -> None:
+    def _init_ui(self, history_enabled: bool, output_enabled: bool, needs_enabled: bool = False) -> None:
         sprites = ensure_sprites(self.base_dir / "assets" / "sprites")
 
         root = QVBoxLayout(self)
@@ -1290,17 +1430,22 @@ class FrierenDeskWindow(QWidget):
             history_enabled=history_enabled,
             output_enabled=output_enabled,
             agent_enabled=self.backend.agent_execution_enabled,
+            needs_enabled=needs_enabled,
             parent=self,
         )
         self.bubble.soundToggled.connect(self._on_sound_toggled)
         self.bubble.historyToggled.connect(self._on_history_toggled)
         self.bubble.outputToggled.connect(self._on_output_toggled)
         self.bubble.agentToggled.connect(self._on_agent_toggled)
+        self.bubble.needsToggled.connect(self._on_needs_toggled)
+        self.bubble.needReplenishRequested.connect(self._fulfill_need)
+        self.bubble.careAllRequested.connect(self._fulfill_all_needs)
         self.bubble.minimizeRequested.connect(self.minimize_bubble_only)
         self.bubble.typingFinished.connect(self._on_typing_finished)
         self.bubble.bubbleDragDeltaY.connect(self._on_bubble_drag_delta)
         self.bubble.bubbleDragFinished.connect(self._on_bubble_drag_finished)
         self._refresh_bubble_history()
+        self.bubble.update_needs_data(self.needs.data)
         root.addWidget(self.bubble, alignment=Qt.AlignmentFlag.AlignRight)
 
         # Controlled gap widget between Bubble and Frieren (clamped 0..70px so it never goes too far)
@@ -1410,11 +1555,11 @@ class FrierenDeskWindow(QWidget):
                 border-radius: 9px;
             }
             #msgScroll {
-                background: transparent;
+                background-color: transparent;
                 border: none;
             }
             #bubbleText {
-                background: transparent;
+                background-color: rgba(25, 27, 38, 245);
                 color: #F5F7FA;
                 font-size: 12.5px;
                 line-height: 1.35;
@@ -1474,6 +1619,45 @@ class FrierenDeskWindow(QWidget):
                 color: #FFD6DC;
                 font-size: 11.5px;
                 font-style: italic;
+            }
+            #needsPanel {
+                background-color: rgba(16, 18, 26, 195);
+                border: 1px solid rgba(255, 182, 193, 45);
+                border-radius: 9px;
+            }
+            #needsTitle {
+                color: #FFEBF0;
+                font-size: 11.5px;
+                font-weight: 700;
+            }
+            #needsCareAllBtn {
+                background-color: rgba(216, 67, 82, 140);
+                border: 1px solid rgba(255, 190, 200, 160);
+                border-radius: 5px;
+                color: #FFFFFF;
+                font-size: 9.5px;
+                font-weight: bold;
+                padding: 1px 6px;
+            }
+            #needsCareAllBtn:hover {
+                background-color: rgba(228, 84, 98, 210);
+            }
+            #needsRowLabel {
+                color: #ECEFF6;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            #needsActionBtn {
+                background-color: rgba(255, 255, 255, 22);
+                border: 1px solid rgba(255, 255, 255, 45);
+                border-radius: 5px;
+                color: #ECEFF6;
+                font-size: 9.5px;
+                font-weight: 600;
+            }
+            #needsActionBtn:hover {
+                background-color: rgba(216, 67, 82, 155);
+                border-color: rgba(255, 190, 200, 180);
             }
             #bubbleText {
                 color: #F5F7FA;
@@ -1648,6 +1832,39 @@ class FrierenDeskWindow(QWidget):
             self.act_sound.setChecked(self.sound_player.enabled)
             self.act_sound.triggered.connect(self._toggle_sound_from_menu)
             menu.addAction(self.act_sound)
+
+            # Submenu: Kebutuhan & Perhatian (Needs & Wellness System)
+            needs_menu = menu.addMenu("🍵 Kebutuhan & Istirahat (Needs System)")
+
+            self.act_status_needs = QAction("Tampilkan Panel Indikator Kebutuhan (🍵)", self)
+            self.act_status_needs.setCheckable(True)
+            self.act_status_needs.setChecked(self.bubble.needs_enabled)
+            self.act_status_needs.triggered.connect(self._toggle_needs_from_menu)
+            needs_menu.addAction(self.act_status_needs)
+            needs_menu.addSeparator()
+
+            act_feed_tea = QAction("🍵 Beri Teh Hangat (Thirst +40)", self)
+            act_feed_tea.triggered.connect(lambda: self._fulfill_need("thirst"))
+            needs_menu.addAction(act_feed_tea)
+
+            act_feed_cake = QAction("🍰 Beri Camilan Manis (Hunger +40)", self)
+            act_feed_cake.triggered.connect(lambda: self._fulfill_need("hunger"))
+            needs_menu.addAction(act_feed_cake)
+
+            act_rest = QAction("💤 Temani Istirahat Sejenak (Energy +40)", self)
+            act_rest.triggered.connect(lambda: self._fulfill_need("energy"))
+            needs_menu.addAction(act_rest)
+
+            act_stretch = QAction("🌿 Peregangan Bersama (Freshness +40)", self)
+            act_stretch.triggered.connect(lambda: self._fulfill_need("freshness"))
+            needs_menu.addAction(act_stretch)
+
+            needs_menu.addSeparator()
+            act_care_all = QAction("✨ Penuhi Semua Kebutuhan (Care All)", self)
+            act_care_all.triggered.connect(self._fulfill_all_needs)
+            needs_menu.addAction(act_care_all)
+
+            menu.addSeparator()
 
             # Submenu: Perasaan / Suasana Hati Frieren (Natural & Cozy)
             emotion_menu = menu.addMenu("🌸 Perasaan & Suasana Hati Frieren")
@@ -1901,10 +2118,11 @@ class FrierenDeskWindow(QWidget):
         self.apply_bubble_gap(self.bubble_gap, save=True)
 
     def _cycle_idle_pose(self) -> None:
-        """Gently cycles Frieren's idle pose between normal, cozy scarf hold, and cute sleepy expression."""
+        """Gently cycles Frieren's idle pose between various cute expressions."""
         if self._worker and self._worker.isRunning():
             return
-        if not self.sprite.current_state.startswith("idle"):
+        # If Frieren is in a temporary needs pose or normal idle, cycle through normal idle poses
+        if not self.sprite.current_state.startswith("idle") and not self.sprite.current_state.startswith("needs_"):
             return
         # Pick a different idle pose smoothly
         choices = [p for p in IDLE_POSES if p != self.sprite.current_state]
@@ -1956,7 +2174,7 @@ class FrierenDeskWindow(QWidget):
         if self.input_box.hasFocus() or self.input_box.text().strip() or self.pending_attachments:
             self._schedule_bubble_autohide()
             return
-        if self.bubble.history_enabled or self.bubble.output_enabled:
+        if self.bubble.history_enabled or self.bubble.output_enabled or self.bubble.needs_enabled:
             self._schedule_bubble_autohide()
             return
         local_cursor = self.mapFromGlobal(QCursor.pos())
@@ -2000,6 +2218,45 @@ class FrierenDeskWindow(QWidget):
     # ------------------------------------------------------------------
     # Settings & Menu Callbacks
     # ------------------------------------------------------------------
+    def _show_needs_status(self) -> None:
+        d = self.needs.data
+        status_msg = (
+            f"Status Kebutuhan & Kesejahteraan:\n"
+            f"• ☕ Kehausan (Thirst): {int(d['thirst'])}%\n"
+            f"• 🍰 Kelaparan (Hunger): {int(d['hunger'])}%\n"
+            f"• 💤 Energi (Energy): {int(d['energy'])}%\n"
+            f"• 🌿 Kesegaran (Freshness): {int(d['freshness'])}%\n\n"
+            f"Frieren selalu nyaman menemanimu bekerja ✦"
+        )
+        self.set_character_state("pleased", status_msg, animate_typing=True, emotion_override="hangat")
+
+    def _fulfill_need(self, need_key: str) -> None:
+        reply = self.needs.replenish(need_key)
+        self.bubble.update_needs_data(self.needs.data)
+        pose_map = {
+            "thirst": "needs_tea",
+            "hunger": "needs_hungry",
+            "energy": "needs_sleepy",
+            "freshness": "needs_stretch",
+        }
+        pose = pose_map.get(need_key, "pleased")
+        self.set_character_state(pose, reply, animate_typing=True, emotion_override="senang")
+
+    def _fulfill_all_needs(self) -> None:
+        reply = self.needs.replenish_all()
+        self.bubble.update_needs_data(self.needs.data)
+        self.set_character_state("pleased_wave", reply, animate_typing=True, emotion_override="antusias")
+
+    def _on_needs_tick(self) -> None:
+        reminder = self.needs.tick(elapsed_seconds=60.0)
+        self.bubble.update_needs_data(self.needs.data)
+        # Only notify if Frieren is idle and not typing or chatting
+        if reminder and not self.bubble.typing_timer.isActive():
+            if not self._worker or not self._worker.isRunning():
+                need_key, text, pose = reminder
+                # Soft friendly reminder
+                self.set_character_state(pose, text, animate_typing=True, emotion_override="penasaran")
+
     def _switch_engine(self, engine_name: str) -> None:
         self.backend.set_engine(engine_name)
         ok, reason = self.backend.check_engine_prerequisites()
@@ -2035,6 +2292,14 @@ class FrierenDeskWindow(QWidget):
             self.act_output.setChecked(enabled)
         self.backend.save_ui_prefs(self.sound_player.enabled, self.bubble.history_enabled, enabled, self.is_minimized)
 
+    def _on_needs_toggled(self, enabled: bool) -> None:
+        if hasattr(self, "act_status_needs"):
+            self.act_status_needs.setChecked(enabled)
+        if enabled:
+            self.bubble.update_needs_data(self.needs.data)
+        self.config.setdefault("ui", {})["needs_enabled"] = bool(enabled)
+        self.backend.save_config()
+
     def _on_agent_toggled(self, enabled: bool) -> None:
         if hasattr(self, "act_agent"):
             self.act_agent.setChecked(enabled)
@@ -2064,6 +2329,10 @@ class FrierenDeskWindow(QWidget):
         self.bubble.set_agent_enabled(checked)
         self._on_agent_toggled(checked)
 
+    def _toggle_needs_from_menu(self, checked: bool) -> None:
+        self.bubble.set_needs_enabled(checked)
+        self._on_needs_toggled(checked)
+
     def _select_gdrive_account(self, account: str) -> None:
         status = self.backend.set_gdrive_account(account)
         if self.is_minimized:
@@ -2073,7 +2342,10 @@ class FrierenDeskWindow(QWidget):
     def _open_notes_file(self) -> None:
         if not self.backend.notes_path.exists():
             self.backend._write_markdown_notes(self.backend.load_ltm())
-        subprocess.Popen(["open", str(self.backend.notes_path)])
+        if sys.platform == "win32":
+            os.startfile(str(self.backend.notes_path))
+        else:
+            subprocess.Popen(["open", str(self.backend.notes_path)])
 
     def _restore_from_gdrive(self) -> None:
         status = self.backend.restore_from_gdrive()
@@ -2178,7 +2450,11 @@ class FrierenDeskWindow(QWidget):
             self.bubble.update_state_badge(state, emotion_override=emotion_override)
 
     def _on_typing_finished(self) -> None:
-        if self.sprite.current_state in TALKING_POSES or self.sprite.current_state.startswith("talking"):
+        if (
+            self.sprite.current_state in TALKING_POSES
+            or self.sprite.current_state.startswith("talking")
+            or self.sprite.current_state.startswith("needs_")
+        ):
             self._next_scheduled_state = "pleased"
             self.state_timer.start(self.talking_hold_ms)
         else:

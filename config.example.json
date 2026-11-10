@@ -3,7 +3,7 @@
   "shortcut": "Cmd+Shift+Space",
   "window": {
     "width": 360,
-    "height": 520,
+    "height": 620,
     "margin_right": 18,
     "margin_bottom": 12
   },
@@ -24,7 +24,7 @@
     "agy_timeout_seconds": 90
   },
   "codex": {
-    "binary": "/Users/user/.local/bin/codex",
+    "binary": "codex",
     "model": "gpt-6-luna",
     "reasoning_effort": "low",
     "timeout_seconds": 90,
@@ -42,6 +42,7 @@
     "sound_enabled": true,
     "history_enabled": false,
     "output_enabled": false,
+    "needs_enabled": false,
     "minimized": false,
     "scale": 1.0,
     "opacity": 1.0,

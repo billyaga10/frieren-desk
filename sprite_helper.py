@@ -40,8 +40,20 @@ STATES = (
     "talking_explain",
     "pleased",
     "pleased_wave",
+    # 4 Needs Poses (Thirst, Hunger, Sleepy, Stretch)
+    "needs_tea",
+    "needs_hungry",
+    "needs_sleepy",
+    "needs_stretch",
 )
-IDLE_POSES = ("idle", "idle_cozy", "idle_sleepy", "idle_reading", "idle_dancing", "idle_tea")
+IDLE_POSES = (
+    "idle",
+    "idle_cozy",
+    "idle_sleepy",
+    "idle_reading",
+    "idle_dancing",
+    "idle_tea",
+)
 THINKING_POSES = ("thinking", "thinking_lookup", "thinking_tilt", "thinking_hmmm", "idle_cozy")
 TALKING_POSES = ("talking", "talking_explain", "idle", "idle_cozy", "pleased_wave")
 PLEASED_POSES = ("pleased", "pleased_wave", "idle_dancing", "idle_cozy", "idle_tea")
