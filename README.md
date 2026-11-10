@@ -1,14 +1,20 @@
 # ✦ Frieren Desk Companion
 
-Ultra-lightweight interactive 2D desktop companion and AI assistant for macOS, powered by **PySide6** and OpenAI Codex CLI (`gpt-6-luna`).
+Ultra-lightweight interactive 2D desktop companion and AI assistant for **macOS and Windows**, supporting dual engine: **OpenAI Codex CLI** (`gpt-6-luna`) and **Google Antigravity CLI** (`gemini-3.8-flash-low`).
 
 ---
 
 ## ✨ Features
 
 - **Borderless & Transparent Desktop Companion**:
-  - Docks smoothly at the bottom-right corner of your screen above macOS Dock.
+  - Docks smoothly at the bottom-right corner of your screen above macOS Dock / Windows Taskbar.
   - Dynamic click-through: clicking outside Frieren or her speech bubble interacts with background apps seamlessly.
+- **Dual AI Engine (Codex CLI & Antigravity CLI)**:
+  - Switch between OpenAI Codex CLI (`gpt-6-luna`) and Google Antigravity CLI (`gemini-3.8-flash-low`) directly via the context menu.
+  - Automatic prerequisite & authentication check with friendly guidance if login is required.
+- **Cross-Platform Audio**:
+  - macOS: native Objective-C `NSSound` chime synthesizer.
+  - Windows: native async `winsound` player.
 - **Expressive 2D Sprites & Idle Animations**:
   - 16 transparent sprites covering states: `idle`, `thinking`, `talking`, `pleased`, plus special agent action poses (`action_laptop` and `action_magic`).
   - Periodic gentle idle pose rotation (drinking tea, reading grimoire, cozy scarf hold, dancing).
@@ -17,22 +23,21 @@ Ultra-lightweight interactive 2D desktop companion and AI assistant for macOS, p
   - Adapts dynamically to conversation context or right-click manual selection.
 - **Typewriter Motion & Soft Anime Sound**:
   - Smooth character typing effect with rich Markdown formatting (bold, italic, code pills, lists, clickable links).
-  - Native macOS Objective-C `NSSound` chime ticks with mute toggle (`🔊` / `🔇`).
+  - Native chime ticks with mute toggle (`🔊` / `🔇`).
 - **Collapsible Toolbar & Custom Positioning**:
-  - Quick action toolbar (`⚡` Agent Mode, `💻` Codex Output drawer, `📜` Chat History, `🔊` Sound) collapsible via `◂` / `▸`.
+  - Quick action toolbar (`⚡` Agent Mode, `💻` CLI Output drawer, `📜` Chat History, `🔊` Sound) collapsible via `◂` / `▸`.
   - Adjustable vertical bubble distance (`0` to `65px`) via drag, Shift + Scroll, or right-click menu.
   - Window Opacity adjustment via Option + Scroll (25% – 100%).
   - Window Resizing via Cmd + Scroll (70% – 150%).
   - Minimize character mode (`Cmd+M`) and hide-to-tray support.
 - **Vision & File Attachments**:
-  - Instant screenshot / image paste (`Cmd+V`).
+  - Instant screenshot / image paste (`Cmd+V` / `Ctrl+V`).
   - Drag and drop images, documents, or file paths directly onto Frieren.
-- **Codex CLI Integration & Dual Memory**:
-  - Powered by local `codex exec` non-interactive runtime.
+- **Dual Memory System**:
   - Short-term conversation history (`memory.json`).
   - Long-term memory notes (`long_term_memory.json` & `frieren_notes.md`) with optional Google Drive auto-sync.
 - **Global Shortcut**:
-  - Press `Cmd+Shift+Space` anywhere in macOS (Carbon zero-polling hotkey) to summon and focus the chat input bar.
+  - Press `Cmd+Shift+Space` (macOS) to summon and focus the chat input bar.
 
 ---
 
@@ -40,9 +45,10 @@ Ultra-lightweight interactive 2D desktop companion and AI assistant for macOS, p
 
 ### Prerequisites
 
-- macOS (tested on macOS Monterey / Ventura / Sonoma)
-- Python 3.11+
-- Codex CLI (`codex`) installed in `~/.local/bin/codex` (or in `$PATH`)
+1. **Python 3.11+**
+2. **AI CLI (At least one)**:
+   - **OpenAI Codex CLI**: Install `codex` and ensure you are logged in by running `codex login`.
+   - **Google Antigravity CLI**: Install `agy` (`gemini-3.8-flash-low`).
 
 ### Installation
 
@@ -53,7 +59,11 @@ cd frieren-desk
 
 # Create virtual environment & install dependencies
 python3 -m venv .venv
+# On macOS/Linux:
 source .venv/bin/activate
+# On Windows (PowerShell):
+# .venv\Scripts\Activate.ps1
+
 pip install -r requirements.txt
 
 # Create your local config from example
@@ -63,9 +73,13 @@ cp config.example.json config.json
 ### Running the Companion
 
 ```bash
+# On macOS:
 ./run.sh
 # or
 .venv/bin/python3 main.py
+
+# On Windows:
+python main.py
 ```
 
 ---

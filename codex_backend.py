@@ -47,11 +47,23 @@ class CodexBackend:
         self.codex_bin = (
             configured_bin
             if os.path.exists(configured_bin)
-            else (shutil.which("codex") or configured_bin)
+            else (shutil.which("codex") or shutil.which("codex.cmd") or shutil.which("codex.exe") or configured_bin)
         )
         self.model: str = codex_cfg.get("model", "gpt-6-luna")
         self.reasoning_effort: str = codex_cfg.get("reasoning_effort", "low")
         self.timeout_seconds: int = int(codex_cfg.get("timeout_seconds", 90))
+
+        engine_cfg = self.config.get("engine", {})
+        self.active_engine: str = str(engine_cfg.get("active", "codex")).lower()
+        configured_agy_bin = engine_cfg.get("agy_binary", "/Users/user/.local/bin/agy")
+        self.agy_bin = (
+            configured_agy_bin
+            if os.path.exists(configured_agy_bin)
+            else (shutil.which("agy") or shutil.which("agy.cmd") or shutil.which("agy.exe") or configured_agy_bin)
+        )
+        self.agy_model: str = engine_cfg.get("agy_model", "gemini-3.8-flash-low")
+        self.agy_effort: str = engine_cfg.get("agy_effort", "low")
+        self.agy_timeout_seconds: int = int(engine_cfg.get("agy_timeout_seconds", 90))
 
     def _load_config(self) -> dict:
         if self.config_path.exists():
@@ -94,6 +106,39 @@ class CodexBackend:
         if bubble_gap is not None:
             ui["bubble_gap"] = int(bubble_gap)
         self.save_config()
+
+    def set_engine(self, engine_name: str) -> None:
+        """Switch active engine between 'codex' and 'antigravity' (agy)."""
+        engine = "antigravity" if engine_name.lower().startswith("anti") or "agy" in engine_name.lower() else "codex"
+        self.active_engine = engine
+        self.config.setdefault("engine", {})["active"] = engine
+        self.save_config()
+
+    def check_engine_prerequisites(self) -> tuple[bool, str]:
+        """Validates binary existence and auth login state across macOS & Windows."""
+        home = Path.home()
+        if self.active_engine == "antigravity":
+            bin_path = shutil.which(self.agy_bin) or (self.agy_bin if os.path.exists(self.agy_bin) else None)
+            if not bin_path:
+                hint = "Pastikan `agy` sudah terinstal di PATH sistemmu atau jalankan instalasi Antigravity CLI."
+                return False, f"Antigravity CLI (`agy`) belum ditemukan di komputermu.\n{hint}"
+            return True, "Antigravity CLI siap digunakan ✦"
+        else:
+            bin_path = shutil.which(self.codex_bin) or (self.codex_bin if os.path.exists(self.codex_bin) else None)
+            if not bin_path:
+                return (
+                    False,
+                    "OpenAI Codex CLI (`codex`) belum terpasang di sistemmu.\n"
+                    "Silakan pasang Codex CLI atau beralih ke engine Antigravity di menu pengaturan.",
+                )
+            codex_auth = home / ".codex" / "auth.json"
+            if not codex_auth.exists():
+                return (
+                    False,
+                    "Kamu belum login ke ChatGPT / OpenAI Codex CLI.\n"
+                    "Silakan buka terminal dan jalankan: `codex login` lalu coba lagi ya.",
+                )
+            return True, "Codex CLI siap digunakan ✦"
 
     # ------------------------------------------------------------------
     # Settings Getters & Setters (Agent Mode & Google Drive Selection)
@@ -304,13 +349,17 @@ class CodexBackend:
         if url_match and self.agent_execution_enabled:
             raw_url = url_match.group(1)
             url = raw_url if raw_url.startswith(("http://", "https://")) else f"https://{raw_url}"
-            subprocess.Popen(["open", url])
+            # Cross-platform open (macOS: open, Windows: start / os.startfile)
+            if sys.platform == "win32":
+                os.startfile(url)
+            else:
+                subprocess.Popen(["open", url])
             self.append_memory("user", user_message)
             reply = f"Sudah kubukakan `{url}` di browser untukmu. Semoga membantu pekerjaanmu ya."
             self.append_memory("assistant", reply)
             return CodexResult(
                 speech=reply,
-                cli_output=f"$ open {url}\n[Opened in default macOS browser - 0 token used]",
+                cli_output=f"$ open {url}\n[Opened in default browser - 0 token used]",
                 saved_memories=[],
                 emotion="antusias",
             )
@@ -399,6 +448,142 @@ class CodexBackend:
             if instant is not None:
                 return instant
 
+        # Check prerequisites (installed binary & login credentials)
+        ok, reason = self.check_engine_prerequisites()
+        if not ok:
+            return CodexResult(
+                speech=reason,
+                cli_output=f"[Prerequisite Check Failed]\n{reason}",
+                saved_memories=[],
+                emotion="tenang",
+            )
+
+        if self.active_engine == "antigravity":
+            return self._ask_agy(user_message, on_status=on_status, attachments=attachments)
+        return self._ask_codex(user_message, on_status=on_status, attachments=attachments)
+
+    def _ask_agy(
+        self,
+        user_message: str,
+        on_status: Optional[Callable[[str], None]] = None,
+        attachments: Optional[List[str]] = None,
+    ) -> CodexResult:
+        prompt = self.build_prompt(user_message, attachments=attachments)
+        mem_user_text = user_message.strip()
+        if attachments:
+            att_names = ", ".join(Path(a).name for a in attachments)
+            mem_user_text = f"{mem_user_text} [Lampiran: {att_names}]".strip()
+        self.append_memory("user", mem_user_text)
+
+        cmd = [
+            self.agy_bin,
+            "-p",
+            prompt,
+            "--output-format",
+            "stream-json",
+            "--model",
+            self.agy_model,
+            "--effort",
+            self.agy_effort,
+        ]
+
+        if self.agent_execution_enabled:
+            cmd.append("--dangerously-skip-permissions")
+        else:
+            cmd.append("--sandbox")
+
+        cli_logs: List[str] = [f"$ agy -p (model: {self.agy_model})"]
+        accumulated_text: List[str] = []
+
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                cwd=str(Path.home()),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={**os.environ, "NO_COLOR": "1"},
+            )
+
+            if proc.stdout:
+                for raw_line in proc.stdout:
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    try:
+                        evt = json.loads(line)
+                        etype = evt.get("event", "")
+                        if etype == "step_update":
+                            step = evt.get("step_update", {})
+                            delta = step.get("text_delta")
+                            if delta:
+                                accumulated_text.append(delta)
+                            stype = step.get("step_type", "")
+                            if stype == "tool_call" and on_status:
+                                on_status("Sedang merapal sihir / memproses perintah... ✦")
+                        elif etype == "result":
+                            res_obj = evt.get("result", {})
+                            final_resp = res_obj.get("response")
+                            if final_resp and not accumulated_text:
+                                accumulated_text.append(final_resp)
+                    except Exception:
+                        pass
+
+            proc.wait(timeout=self.agy_timeout_seconds)
+
+            full_reply = "".join(accumulated_text).strip()
+            if not full_reply:
+                stderr_txt = (proc.stderr.read() if proc.stderr else "").strip()
+                detail = stderr_txt.splitlines()[-1] if stderr_txt else f"exit code {proc.returncode}"
+                return CodexResult(
+                    speech=f"Hmm... sihir Antigravity sedang sulit dirapalkan ({detail}). Coba sebentar lagi ya.",
+                    cli_output="\n".join(cli_logs) + (f"\n[STDERR]\n{stderr_txt}" if stderr_txt else ""),
+                    saved_memories=[],
+                )
+
+            speech, extracted_block, saved_memories, emotion = self._parse_response(full_reply)
+            for fact in saved_memories:
+                self.add_ltm(fact)
+
+            if extracted_block:
+                cli_logs.append("\n=== AGY OUTPUT ===\n" + extracted_block)
+            else:
+                cli_logs.append("\n=== RESPONSE ===\n" + speech)
+
+            if saved_memories:
+                cli_logs.append("\n=== MEMORY SAVED ===\n" + "\n".join(f"- {m}" for m in saved_memories))
+
+            self.append_memory("assistant", speech)
+            return CodexResult(
+                speech=speech,
+                cli_output="\n".join(cli_logs).strip(),
+                saved_memories=saved_memories,
+                emotion=emotion,
+            )
+
+        except subprocess.TimeoutExpired:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            return CodexResult(
+                speech="Maaf ya, proses Antigravity butuh waktu terlalu lama. Ayo coba instruksi yang lebih singkat.",
+                cli_output="[Timeout setelah menunggu eksekusi agy CLI]",
+                saved_memories=[],
+            )
+        except Exception as exc:
+            return CodexResult(
+                speech=f"Ada kendala saat menghubungi Antigravity CLI: {exc}",
+                cli_output=f"[Exception] {exc}",
+                saved_memories=[],
+            )
+
+    def _ask_codex(
+        self,
+        user_message: str,
+        on_status: Optional[Callable[[str], None]] = None,
+        attachments: Optional[List[str]] = None,
+    ) -> CodexResult:
         prompt = self.build_prompt(user_message, attachments=attachments)
         mem_user_text = user_message.strip()
         if attachments:

@@ -269,6 +269,15 @@ class TypingSoundPlayer:
             if not wav_path.exists():
                 self._write_blip_wav(wav_path, freq)
 
+        if sys.platform == "win32":
+            # Native Windows winsound player support
+            try:
+                import winsound
+                self._winsound = winsound
+            except Exception:
+                pass
+            return
+
         if sys.platform != "darwin":
             return
         try:
@@ -335,7 +344,18 @@ class TypingSoundPlayer:
             wf.writeframes(bytes(frames))
 
     def play_tick(self) -> None:
-        if not self.enabled or not self.effects or not self._objc:
+        if not self.enabled:
+            return
+        if sys.platform == "win32" and hasattr(self, "_winsound"):
+            try:
+                wav_file = str(self.sounds_dir / f"blip_{self._idx % 3}.wav")
+                self._idx += 1
+                self._winsound.PlaySound(wav_file, self._winsound.SND_FILENAME | self._winsound.SND_ASYNC)
+            except Exception:
+                pass
+            return
+
+        if not self.effects or not self._objc:
             return
         try:
             snd = self.effects[self._idx % len(self.effects)]
@@ -1579,7 +1599,33 @@ class FrierenDeskWindow(QWidget):
 
             menu.addSeparator()
 
-            self.act_agent = QAction("⚡ Izinkan Eksekusi Aksi / Buka Web (Codex Agent Mode)", self)
+            # Submenu: AI Engine Selection (Codex vs Antigravity)
+            engine_menu = menu.addMenu("🤖 Mesin AI (Codex vs Antigravity)")
+            self.engine_group = QActionGroup(self)
+            self.engine_group.setExclusive(True)
+
+            act_eng_codex = QAction("OpenAI Codex CLI (gpt-6-luna)", self)
+            act_eng_codex.setCheckable(True)
+            act_eng_codex.setChecked(self.backend.active_engine == "codex")
+            act_eng_codex.triggered.connect(lambda: self._switch_engine("codex"))
+            self.engine_group.addAction(act_eng_codex)
+            engine_menu.addAction(act_eng_codex)
+
+            act_eng_agy = QAction("Google Antigravity CLI (gemini-3.8-flash-low)", self)
+            act_eng_agy.setCheckable(True)
+            act_eng_agy.setChecked(self.backend.active_engine == "antigravity")
+            act_eng_agy.triggered.connect(lambda: self._switch_engine("antigravity"))
+            self.engine_group.addAction(act_eng_agy)
+            engine_menu.addAction(act_eng_agy)
+
+            engine_menu.addSeparator()
+            act_check_pre = QAction("Periksa Kesiapan Mesin (Login & Binary)", self)
+            act_check_pre.triggered.connect(self._check_engine_status_dialog)
+            engine_menu.addAction(act_check_pre)
+
+            menu.addSeparator()
+
+            self.act_agent = QAction("⚡ Izinkan Eksekusi Aksi / Buka Web (Agent Mode)", self)
             self.act_agent.setCheckable(True)
             self.act_agent.setChecked(self.backend.agent_execution_enabled)
             self.act_agent.triggered.connect(self._toggle_agent_from_menu)
@@ -1954,6 +2000,24 @@ class FrierenDeskWindow(QWidget):
     # ------------------------------------------------------------------
     # Settings & Menu Callbacks
     # ------------------------------------------------------------------
+    def _switch_engine(self, engine_name: str) -> None:
+        self.backend.set_engine(engine_name)
+        ok, reason = self.backend.check_engine_prerequisites()
+        engine_label = "Antigravity CLI (gemini-3.8-flash)" if engine_name == "antigravity" else "OpenAI Codex CLI (gpt-6-luna)"
+        if ok:
+            msg = f"Mesin AI dialihkan ke {engine_label} ✦"
+            emo = "antusias"
+        else:
+            msg = f"Beralih ke {engine_label}, namun ada catatan:\n{reason}"
+            emo = "tenang"
+        self.set_character_state("pleased", msg, animate_typing=True, emotion_override=emo)
+
+    def _check_engine_status_dialog(self) -> None:
+        ok, reason = self.backend.check_engine_prerequisites()
+        engine_label = "Antigravity CLI" if self.backend.active_engine == "antigravity" else "OpenAI Codex CLI"
+        status_txt = f"[{engine_label}]\n{reason}"
+        self.set_character_state("pleased", status_txt, animate_typing=True, emotion_override="fokus" if ok else "penasaran")
+
     def _on_sound_toggled(self, enabled: bool) -> None:
         if hasattr(self, "act_sound"):
             self.act_sound.setChecked(enabled)

@@ -16,6 +16,13 @@
     "gdrive_account": "",
     "gdrive_accounts": {}
   },
+  "engine": {
+    "active": "codex",
+    "agy_binary": "agy",
+    "agy_model": "gemini-3.8-flash-low",
+    "agy_effort": "low",
+    "agy_timeout_seconds": 90
+  },
   "codex": {
     "binary": "/Users/user/.local/bin/codex",
     "model": "gpt-6-luna",
