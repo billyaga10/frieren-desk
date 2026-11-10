@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -44,11 +45,16 @@ class CodexBackend:
 
         codex_cfg = self.config.get("codex", {})
         configured_bin = codex_cfg.get("binary", "/Users/user/.local/bin/codex")
-        self.codex_bin = (
-            configured_bin
-            if os.path.exists(configured_bin)
-            else (shutil.which("codex") or shutil.which("codex.cmd") or shutil.which("codex.exe") or configured_bin)
-        )
+        self.codex_bin = configured_bin if os.path.exists(configured_bin) else None
+        if not self.codex_bin and sys.platform == "win32":
+            # Prefer native Windows codex.exe binary to prevent cmd.exe batch wrapping issues
+            import glob
+            local_app = os.environ.get("LOCALAPPDATA", "")
+            matches = glob.glob(os.path.join(local_app, "OpenAI", "Codex", "bin", "*", "codex.exe"))
+            if matches and os.path.exists(matches[0]):
+                self.codex_bin = matches[0]
+        if not self.codex_bin:
+            self.codex_bin = shutil.which("codex.exe") or shutil.which("codex") or shutil.which("codex.cmd") or configured_bin
         self.model: str = codex_cfg.get("model", "gpt-6-luna")
         self.reasoning_effort: str = codex_cfg.get("reasoning_effort", "low")
         self.timeout_seconds: int = int(codex_cfg.get("timeout_seconds", 90))
@@ -496,6 +502,10 @@ class CodexBackend:
         accumulated_text: List[str] = []
 
         try:
+            extra_kwargs = {}
+            if sys.platform == "win32":
+                extra_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(Path.home()),
@@ -503,6 +513,7 @@ class CodexBackend:
                 stderr=subprocess.PIPE,
                 text=True,
                 env={**os.environ, "NO_COLOR": "1"},
+                **extra_kwargs,
             )
 
             if proc.stdout:
@@ -627,6 +638,10 @@ class CodexBackend:
             cmd.extend(["-o", out_path, prompt])
 
             cli_logs: List[str] = ["$ codex exec"]
+            extra_kwargs = {}
+            if sys.platform == "win32":
+                extra_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+
             proc = subprocess.Popen(
                 cmd,
                 cwd=str(Path.home()),
@@ -634,6 +649,7 @@ class CodexBackend:
                 stderr=subprocess.PIPE,
                 text=True,
                 env={**os.environ, "NO_COLOR": "1"},
+                **extra_kwargs,
             )
 
             # Stream JSONL events to capture executed commands & tool calls live

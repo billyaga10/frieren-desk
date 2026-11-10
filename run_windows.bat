@@ -6,8 +6,12 @@ echo [Frieren Desk Companion] Memeriksa environment Windows...
 
 if not exist ".venv\Scripts\python.exe" (
     echo [Frieren Desk] Virtual environment belum ditemukan. Membuat .venv...
-    python -m venv .venv
-    if errorlevel 1 (
+    where python >nul 2>&1
+    if not errorlevel 1 (
+        python -m venv .venv
+    ) else if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+        "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" -m venv .venv
+    ) else (
         echo [ERROR] Python belum terinstall atau belum ada di PATH Windows kamu.
         echo Silakan unduh Python di https://www.python.org/downloads/ lalu centang "Add Python to PATH".
         pause
