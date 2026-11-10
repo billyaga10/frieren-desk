@@ -1,0 +1,19 @@
+[package]
+name = "frieren-desk"
+version = "0.1.0"
+description = "Lightweight 2D Frieren Desktop Companion for macOS (WebKit + Codex CLI)"
+authors = ["User"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.6", features = [ "macos-private-api", "global-shortcut-all", "shell-open"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+cocoa = "0.25"
+objc = "0.2"
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,21 @@
+# Virtual Environment & Python cache
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# User Personal Data & Memory (DO NOT COMMIT)
+memory.json
+long_term_memory.json
+frieren_notes.md
+assets/clipboard/
+config.json
+
+# macOS metadata & temporary files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes

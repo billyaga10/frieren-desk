@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <title>Frieren Desk Companion</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+    html, body {
+      width: 350px;
+      height: 500px;
+      background: transparent;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      align-items: flex-end;
+      padding: 10px;
+    }
+    .bubble {
+      background: rgba(25, 27, 38, 0.93);
+      border: 1.5px solid rgba(216, 67, 82, 0.8);
+      border-radius: 14px;
+      padding: 10px 13px;
+      color: #F5F7FA;
+      font-size: 12.5px;
+      line-height: 1.38;
+      width: 320px;
+      margin-bottom: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .bubble-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11.5px;
+      color: #FFD6DC;
+      font-weight: 700;
+    }
+    .state-badge {
+      color: #AEB8D0;
+      font-weight: 400;
+      font-style: italic;
+      font-size: 10.5px;
+      margin-right: auto;
+    }
+    .icon-btn {
+      width: 22px;
+      height: 20px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .icon-btn.active {
+      background: rgba(209, 59, 73, 0.6);
+      border-color: rgba(255, 190, 200, 0.7);
+    }
+    .history-box {
+      max-height: 115px;
+      overflow-y: auto;
+      background: rgba(16, 18, 26, 0.65);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 9px;
+      padding: 6px;
+      display: none;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .history-box.open { display: flex; }
+    .history-item {
+      padding: 5px 8px;
+      border-radius: 7px;
+      font-size: 11.5px;
+      line-height: 1.3;
+      user-select: text;
+    }
+    .history-item.user { background: rgba(58, 66, 92, 0.6); }
+    .history-item.bot { background: rgba(120, 38, 52, 0.55); }
+    .loading-row {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 2px;
+      color: #FFD6DC;
+      font-style: italic;
+      font-size: 12px;
+    }
+    .loading-row.active { display: flex; }
+    .spinner {
+      width: 20px;
+      height: 20px;
+      border: 2.6px solid rgba(255, 214, 220, 0.2);
+      border-top-color: #FF758F;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .sprite-stage {
+      position: relative;
+      width: 240px;
+      height: 250px;
+      cursor: pointer;
+    }
+    .sprite-stage img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      opacity: 0;
+      transition: opacity 0.22s ease-in-out;
+      pointer-events: none;
+    }
+    .sprite-stage img.active { opacity: 1; }
+    .input-bar {
+      width: 100%;
+      display: flex;
+      gap: 6px;
+      background: rgba(24, 26, 36, 0.94);
+      border: 1.5px solid rgba(236, 239, 246, 0.6);
+      border-radius: 16px;
+      padding: 6px 8px 6px 12px;
+      margin-top: 6px;
+    }
+    .input-bar input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fff;
+      font-size: 12.5px;
+    }
+    .input-bar button {
+      width: 28px;
+      height: 28px;
+      border-radius: 14px;
+      border: none;
+      background: #D13B49;
+      color: #fff;
+      cursor: pointer;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div id="bubble" class="bubble">
+    <div class="bubble-header">
+      <span>✦ Frieren</span>
+      <span id="stateLabel" class="state-badge">• tenang</span>
+      <button id="historyBtn" type="button" class="icon-btn" title="Riwayat Chat">📜</button>
+      <button id="soundBtn" type="button" class="icon-btn active" title="Suara Ketikan">🔊</button>
+    </div>
+
+    <div id="historyBox" class="history-box"></div>
+
+    <div id="loadingRow" class="loading-row">
+      <div class="spinner"></div>
+      <span>Sedang merapal pikiran...</span>
+    </div>
+
+    <div id="bubbleText">
+      Halo... Aku sudah duduk nyaman di pojok layarmu. Tekan Cmd+Shift+Space kapan saja untuk mengobrol ya.
+    </div>
+  </div>
+
+  <div id="spriteStage" class="sprite-stage">
+    <img id="sp-idle" src="../assets/sprites/idle.png" class="active" alt="idle" />
+    <img id="sp-thinking" src="../assets/sprites/thinking.png" alt="thinking" />
+    <img id="sp-talking" src="../assets/sprites/talking.png" alt="talking" />
+    <img id="sp-pleased" src="../assets/sprites/pleased.png" alt="pleased" />
+  </div>
+
+  <form id="inputForm" class="input-bar">
+    <input id="chatInput" type="text" placeholder="Tanya Frieren... (Cmd+Shift+Space)" autocomplete="off" />
+    <button type="submit">✦</button>
+  </form>
+
+  <script>
+    const states = ["idle", "thinking", "talking", "pleased"];
+    let soundEnabled = true;
+    let historyEnabled = false;
+    let audioCtx = null;
+    let typingTimer = null;
+
+    function playBlip() {
+      if (!soundEnabled) return;
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const freqs = [587.33, 659.25, 783.99];
+      osc.frequency.value = freqs[Math.floor(Math.random() * freqs.length)];
+      gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.035);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.035);
+    }
+
+    function setState(nextState, text, animate = false) {
+      states.forEach(s => document.getElementById(`sp-${s}`).classList.toggle("active", s === nextState));
+      document.getElementById("stateLabel").textContent = `• ${nextState}`;
+      const loadingRow = document.getElementById("loadingRow");
+      const bubbleText = document.getElementById("bubbleText");
+      if (typingTimer) clearInterval(typingTimer);
+
+      if (nextState === "thinking" && !text) {
+        loadingRow.classList.add("active");
+        bubbleText.style.display = "none";
+        return;
+      }
+      loadingRow.classList.remove("active");
+      bubbleText.style.display = "block";
+      if (!text) return;
+
+      if (!animate) {
+        bubbleText.textContent = text;
+        return;
+      }
+      bubbleText.textContent = "";
+      let i = 0;
+      typingTimer = setInterval(() => {
+        if (i >= text.length) {
+          clearInterval(typingTimer);
+          setTimeout(() => setState("pleased"), 2200);
+          setTimeout(() => setState("idle"), 6200);
+          return;
+        }
+        bubbleText.textContent += text[i];
+        if (text[i] !== " " && i % 2 === 0) playBlip();
+        i++;
+      }, 28);
+    }
+
+    document.getElementById("soundBtn").addEventListener("click", (e) => {
+      soundEnabled = !soundEnabled;
+      e.currentTarget.classList.toggle("active", soundEnabled);
+      e.currentTarget.textContent = soundEnabled ? "🔊" : "🔇";
+    });
+
+    document.getElementById("historyBtn").addEventListener("click", (e) => {
+      historyEnabled = !historyEnabled;
+      e.currentTarget.classList.toggle("active", historyEnabled);
+      document.getElementById("historyBox").classList.toggle("open", historyEnabled);
+    });
+  </script>
+</body>
+</html>

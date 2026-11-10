@@ -1,0 +1,43 @@
+{
+  "app_name": "Frieren Desk Companion",
+  "shortcut": "Cmd+Shift+Space",
+  "window": {
+    "width": 360,
+    "height": 520,
+    "margin_right": 18,
+    "margin_bottom": 12
+  },
+  "memory": {
+    "file": "memory.json",
+    "ltm_file": "long_term_memory.json",
+    "notes_file": "frieren_notes.md",
+    "max_messages": 10,
+    "gdrive_sync_enabled": false,
+    "gdrive_account": "",
+    "gdrive_accounts": {}
+  },
+  "codex": {
+    "binary": "/Users/user/.local/bin/codex",
+    "model": "gpt-6-luna",
+    "reasoning_effort": "low",
+    "timeout_seconds": 90,
+    "agent_execution_enabled": true,
+    "enable_gdrive_plugin": false,
+    "ephemeral": true
+  },
+  "animation": {
+    "fade_duration_ms": 220,
+    "typing_interval_ms": 26,
+    "talking_hold_ms": 2200,
+    "pleased_hold_ms": 4000
+  },
+  "ui": {
+    "sound_enabled": true,
+    "history_enabled": false,
+    "output_enabled": false,
+    "minimized": false,
+    "scale": 1.0,
+    "opacity": 1.0,
+    "bubble_gap": 4
+  }
+}

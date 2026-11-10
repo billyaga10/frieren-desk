@@ -1,0 +1,38 @@
+{
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "devPath": "../ui",
+    "distDir": "../ui",
+    "withGlobalTauri": true
+  },
+  "package": {
+    "productName": "FrierenDesk",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "macOSPrivateApi": true,
+    "allowlist": {
+      "all": false,
+      "globalShortcut": {
+        "all": true
+      },
+      "window": {
+        "all": true
+      }
+    },
+    "windows": [
+      {
+        "title": "Frieren Desk Companion",
+        "width": 340,
+        "height": 470,
+        "resizable": false,
+        "fullscreen": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true
+      }
+    ]
+  }
+}
