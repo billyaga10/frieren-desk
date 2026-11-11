@@ -117,6 +117,8 @@ STATE_DEFAULT_EMOTION: Dict[str, str] = {
     "needs_hungry": "penasaran",
     "needs_sleepy": "mengantuk",
     "needs_stretch": "antusias",
+    "sleeping": "mengantuk",
+    "sleepy_yawn": "mengantuk",
 }
 
 
@@ -1236,6 +1238,8 @@ class SpeechBubble(QFrame):
             "needs_hungry": "· lapar 🍰",
             "needs_sleepy": "· mengantuk 💤",
             "needs_stretch": "· peregangan 🌿",
+            "sleeping": "· tidur lelap (Zzz...)",
+            "sleepy_yawn": "· menguap 🥱",
         }
         self._raw_state_text = badge_map.get(state, f"· {state}")
         self.state_badge.setToolTip(f"Aktivitas saat ini: {self._raw_state_text.lstrip('· ')}")
@@ -2204,6 +2208,9 @@ class FrierenDeskWindow(QWidget):
         """Gently cycles Frieren's idle pose between various cute expressions."""
         if self._worker and self._worker.isRunning():
             return
+        # If Frieren is sleeping, do not interrupt her sleep with active idle poses
+        if getattr(self, "needs", None) and self.needs.is_sleeping:
+            return
         # If Frieren is in a temporary needs pose or normal idle, cycle through normal idle poses
         if not self.sprite.current_state.startswith("idle") and not self.sprite.current_state.startswith("needs_"):
             return
@@ -2333,12 +2340,21 @@ class FrierenDeskWindow(QWidget):
     def _on_needs_tick(self) -> None:
         reminder = self.needs.tick(elapsed_seconds=60.0)
         self.bubble.update_needs_data(self.needs.data)
+
+        # If Frieren is sleeping, keep her in sleeping state quietly without spamming bubble
+        if self.needs.is_sleeping and not self.bubble.typing_timer.isActive():
+            if not self._worker or not self._worker.isRunning():
+                if self.sprite.current_state != "sleeping":
+                    self.sprite.set_state("sleeping")
+                    self.bubble.update_state_badge("sleeping", emotion_override="mengantuk")
+
         # Only notify if Frieren is idle and not typing or chatting
         if reminder and not self.bubble.typing_timer.isActive():
             if not self._worker or not self._worker.isRunning():
                 need_key, text, pose = reminder
-                # Soft friendly reminder
-                self.set_character_state(pose, text, animate_typing=True, emotion_override="penasaran")
+                # Soft friendly reminder or auto-sleep notification
+                emotion = "mengantuk" if need_key in ("auto_sleep", "energy") else ("ceria" if need_key == "wake_up" else "penasaran")
+                self.set_character_state(pose, text, animate_typing=True, emotion_override=emotion)
 
     def _switch_engine(self, engine_name: str) -> None:
         self.backend.set_engine(engine_name)
@@ -2603,6 +2619,17 @@ class FrierenDeskWindow(QWidget):
             self.set_minimized(False)
             return
         self.state_timer.stop()
+
+        # If Frieren was sleeping, waking her up gently by petting
+        if getattr(self, "needs", None) and self.needs.is_sleeping:
+            self.needs.wake_up()
+            self.bubble.update_needs_data(self.needs.data)
+            quote = "Hooam... eh, kamu menyapaku ya? Aku bangun kok... Ada yang bisa kubantu? ✦"
+            self.set_character_state("pleased", quote, animate_typing=True, emotion_override="hangat")
+            self._next_scheduled_state = "idle"
+            self.state_timer.start(self.pleased_hold_ms)
+            return
+
         # Pick a random line from 36 varied quotes (never repeating the same one twice in a row)
         candidates = [i for i in range(len(PET_QUOTES)) if i != self._last_pet_idx]
         idx = random.choice(candidates)
@@ -2732,6 +2759,11 @@ class FrierenDeskWindow(QWidget):
             return
         if self._worker and self._worker.isRunning():
             return
+
+        # If Frieren was sleeping, she wakes up immediately to help
+        if getattr(self, "needs", None) and self.needs.is_sleeping:
+            self.needs.wake_up()
+            self.bubble.update_needs_data(self.needs.data)
 
         self.input_box.clear()
         self.clear_attachments()

@@ -27,6 +27,8 @@ class NeedsManager:
             "energy": 90.0,
             "freshness": 85.0,
         }
+        self.is_sleeping: bool = False
+        self._last_reminders: Dict[str, float] = {}
         self.last_update_ts: str = datetime.now().isoformat(timespec="seconds")
         self._load()
 
@@ -37,6 +39,7 @@ class NeedsManager:
                 for k in ("thirst", "hunger", "energy", "freshness"):
                     if k in raw:
                         self.data[k] = max(0.0, min(100.0, float(raw[k])))
+                self.is_sleeping = bool(raw.get("is_sleeping", False))
                 self.last_update_ts = raw.get("last_update_ts", datetime.now().isoformat(timespec="seconds"))
             except Exception:
                 pass
@@ -45,6 +48,7 @@ class NeedsManager:
         try:
             payload = {
                 **self.data,
+                "is_sleeping": self.is_sleeping,
                 "last_update_ts": self.last_update_ts,
             }
             self.needs_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -53,16 +57,39 @@ class NeedsManager:
 
     def tick(self, elapsed_seconds: float = 60.0) -> Optional[Tuple[str, str, str]]:
         """
-        Simulates natural decay over elapsed_seconds.
-        Returns Optional[(need_key, reminder_text, target_pose)] if any need is low and needs attention.
+        Simulates natural decay or sleep recovery over elapsed_seconds.
+        Returns Optional[(need_key, reminder_text, target_pose)] when an event or milestone triggers.
         """
         hours = elapsed_seconds / 3600.0
         now = datetime.now()
+        now_ts = now.timestamp()
 
-        # Decay rates per hour
+        # If Frieren is currently sleeping, recover energy autonomously!
+        if self.is_sleeping:
+            # Sleep recovery: ~+6% energy every 60s (approx 15-20 mins for full nap)
+            energy_regen = 6.0 * (elapsed_seconds / 60.0)
+            self.data["energy"] = min(100.0, self.data["energy"] + energy_regen)
+            self.data["freshness"] = min(100.0, self.data["freshness"] + 2.0 * (elapsed_seconds / 60.0))
+            # Minor thirst/hunger decay while sleeping
+            self.data["thirst"] = max(10.0, self.data["thirst"] - 5.0 * hours)
+            self.data["hunger"] = max(10.0, self.data["hunger"] - 5.0 * hours)
+            self.last_update_ts = now.isoformat(timespec="seconds")
+            self.save()
+
+            # When energy is fully replenished (>= 95%), Frieren wakes up on her own!
+            if self.data["energy"] >= 95.0:
+                self.is_sleeping = False
+                self.save()
+                return (
+                    "wake_up",
+                    "Hooam... pagii / tubuhku segar kembali! Energi sudah terisi penuh ✨ Ayo lanjut!",
+                    "pleased_wave",
+                )
+            return None
+
+        # Normal active decay rates per hour
         thirst_decay = 20.0 * hours
         hunger_decay = 15.0 * hours
-        # Energy drains a bit faster at night (22:00 - 06:00)
         is_night = now.hour >= 22 or now.hour < 6
         energy_decay = (18.0 if is_night else 10.0) * hours
         freshness_decay = 20.0 * hours
@@ -75,32 +102,59 @@ class NeedsManager:
         self.last_update_ts = now.isoformat(timespec="seconds")
         self.save()
 
-        # Check for gentle reminders (non-intrusive)
-        if self.data["thirst"] < 35.0:
+        # Autonomous sleep check: if energy <= 25%, she gets super sleepy and falls asleep on her own
+        if self.data["energy"] <= 25.0:
+            last_nap_prompt = self._last_reminders.get("auto_sleep", 0.0)
+            # Don't prompt more often than every 10 minutes
+            if now_ts - last_nap_prompt > 600:
+                self._last_reminders["auto_sleep"] = now_ts
+                self.is_sleeping = True
+                self.save()
+                return (
+                    "auto_sleep",
+                    "Uwah... mataku sudah berat sekali 💤 Aku izin tidur sebentar di pojok meja ya, jangan lupa istirahat juga...",
+                    "sleeping",
+                )
+
+        def _can_remind(key: str, cooldown_seconds: float = 600.0) -> bool:
+            last = self._last_reminders.get(key, 0.0)
+            if now_ts - last >= cooldown_seconds:
+                self._last_reminders[key] = now_ts
+                return True
+            return False
+
+        # Non-intrusive reminders with 10-minute cooldown per need
+        if self.data["energy"] < 40.0 and _can_remind("energy"):
+            return (
+                "energy",
+                "Mataku mulai agak berat... Kalau kamu juga lelah, kita istirahat sejenak tidak apa-apa kok 💤",
+                "needs_sleepy",
+            )
+        if self.data["thirst"] < 35.0 and _can_remind("thirst"):
             return (
                 "thirst",
                 "Hmm... tenggorokanku agak haus. Ada teh hangat atau air putih? Kamu juga jangan lupa minum ya ☕",
                 "needs_tea",
             )
-        if self.data["hunger"] < 30.0:
+        if self.data["hunger"] < 30.0 and _can_remind("hunger"):
             return (
                 "hunger",
-                "Perutku mulai bersuara kecil... kira-kira camilan manis atau makanan enak apa ya? Jangan lupa makan ya 🍰",
+                "Perutku mulai bersuara kecil... kira-kira camilan manis apa ya? Jangan lupa makan ya 🍰",
                 "needs_hungry",
             )
-        if self.data["energy"] < 30.0:
-            return (
-                "energy",
-                "Uwah... mataku agak berat dan mengantuk. Kalau lelah, istirahat sejenak tidak apa-apa kok 💤",
-                "needs_sleepy",
-            )
-        if self.data["freshness"] < 30.0:
+        if self.data["freshness"] < 30.0 and _can_remind("freshness"):
             return (
                 "freshness",
                 "Sudah cukup lama kamu menatap layar. Ayo regangkan kedua tangan dan punggungmu sebentar 🌿",
                 "needs_stretch",
             )
         return None
+
+    def wake_up(self) -> None:
+        """Wakes up Frieren if she is sleeping."""
+        if self.is_sleeping:
+            self.is_sleeping = False
+            self.save()
 
     def replenish(self, need_key: str, amount: float = 40.0) -> str:
         """Replenishes a specific need when user feeds/waters/rests Frieren."""

@@ -45,6 +45,9 @@ STATES = (
     "needs_hungry",
     "needs_sleepy",
     "needs_stretch",
+    # Autonomous Sleep Poses
+    "sleeping",
+    "sleepy_yawn",
 )
 IDLE_POSES = (
     "idle",
