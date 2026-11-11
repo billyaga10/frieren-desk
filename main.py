@@ -32,6 +32,8 @@ from typing import Dict, List, Optional
 
 from PySide6.QtCore import (
     Property,
+    QAbstractNativeEventFilter,
+    QCoreApplication,
     QPoint,
     QPropertyAnimation,
     QRect,
@@ -159,7 +161,7 @@ PET_QUOTES = [
     "Pelan-pelan saja mengerjakannya, satu langkah kecil tetap membawamu lebih dekat ke tujuan.",
     "Anting merah ini? Ini salah satu benda kesayanganku, cocok kan dengan syalku?",
     "Kamu sudah bekerja keras hari ini. Aku bangga melihat ketekunanmu dari sini ✦",
-    "Kalau butuh membuka web atau mencari sesuatu, tinggal panggil aku dengan Cmd+Shift+Space ya!",
+    "Kalau butuh membuka web atau mencari sesuatu, tinggal panggil aku dengan shortcut keyboard ya!",
     "Udara di sekitar sini terasa hangat... mungkin karena kamu sedang semangat bekerja.",
     "Hmm~ tadi aku hampir tertidur sambil memeluk syal, untung kamu menyapaku.",
     "Tidak semua hal harus selesai dalam satu kedipan mata. Nikmati prosesnya ya.",
@@ -248,6 +250,74 @@ class MacGlobalHotKey:
             )
         except Exception:
             pass
+
+
+class WinGlobalHotKey(QAbstractNativeEventFilter):
+    """Registers a native Windows global hotkey (Ctrl+Shift+Space) via Win32 RegisterHotKey."""
+
+    def __init__(self, callback) -> None:
+        super().__init__()
+        self.callback = callback
+        self.registered = False
+        self._hotkey_id = 9001
+        self._install()
+
+    def _install(self) -> None:
+        if sys.platform != "win32":
+            return
+        try:
+            from ctypes import wintypes
+
+            class MSG(ctypes.Structure):
+                _fields_ = [
+                    ("hwnd", wintypes.HWND),
+                    ("message", wintypes.UINT),
+                    ("wParam", wintypes.WPARAM),
+                    ("lParam", wintypes.LPARAM),
+                    ("time", wintypes.DWORD),
+                    ("pt", wintypes.POINT),
+                ]
+
+            self._msg_cls = MSG
+            self._wm_hotkey = 0x0312
+            MOD_CONTROL = 0x0002
+            MOD_SHIFT = 0x0004
+            MOD_NOREPEAT = 0x4000
+            VK_SPACE = 0x20
+
+            self.user32 = ctypes.windll.user32
+            res = self.user32.RegisterHotKey(
+                None,
+                self._hotkey_id,
+                MOD_CONTROL | MOD_SHIFT | MOD_NOREPEAT,
+                VK_SPACE,
+            )
+            if res:
+                self.registered = True
+                app = QCoreApplication.instance()
+                if app:
+                    app.installNativeEventFilter(self)
+        except Exception:
+            pass
+
+    def nativeEventFilter(self, eventType, message):
+        if self.registered and eventType in (b"windows_generic_MSG", "windows_generic_MSG"):
+            try:
+                msg = self._msg_cls.from_address(int(message))
+                if msg.message == self._wm_hotkey and msg.wParam == self._hotkey_id:
+                    QTimer.singleShot(0, self.callback)
+                    return True, 0
+            except Exception:
+                pass
+        return False, 0
+
+    def unregister(self) -> None:
+        if self.registered and sys.platform == "win32":
+            try:
+                self.user32.UnregisterHotKey(None, self._hotkey_id)
+            except Exception:
+                pass
+            self.registered = False
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +854,8 @@ class SpeechBubble(QFrame):
         self.min_btn.setObjectName("iconToggleBtn")
         self.min_btn.setFixedSize(20, 20)
         self.min_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.min_btn.setToolTip("Sembunyikan Bubble Chat (Klik Frieren atau Cmd+Shift+Space untuk memunculkan lagi)")
+        tip_hk = "Cmd+Shift+Space" if sys.platform == "darwin" else "Ctrl+Shift+Space"
+        self.min_btn.setToolTip(f"Sembunyikan Bubble Chat (Klik Frieren atau {tip_hk} untuk memunculkan lagi)")
         self.min_btn.clicked.connect(self.minimizeRequested.emit)
 
         header.addWidget(self.name_label)
@@ -1730,37 +1801,44 @@ class FrierenDeskWindow(QWidget):
         )
 
     def _init_shortcuts_and_tray(self) -> None:
-        self.local_shortcut = QShortcut(QKeySequence("Meta+Shift+Space"), self)
+        hotkey_label = "Cmd+Shift+Space" if sys.platform == "darwin" else "Ctrl+Shift+Space"
+        self.local_shortcut = QShortcut(QKeySequence("Meta+Shift+Space" if sys.platform == "darwin" else "Ctrl+Shift+Space"), self)
         self.local_shortcut.activated.connect(self.toggle_input_bar)
 
-        self.min_shortcut = QShortcut(QKeySequence("Meta+M"), self)
+        meta_mod = "Meta" if sys.platform == "darwin" else "Ctrl"
+        self.min_shortcut = QShortcut(QKeySequence(f"{meta_mod}+M"), self)
         self.min_shortcut.activated.connect(lambda: self.set_minimized(not self.is_minimized))
 
-        self.zoom_in_shortcut = QShortcut(QKeySequence("Meta+="), self)
+        self.zoom_in_shortcut = QShortcut(QKeySequence(f"{meta_mod}+="), self)
         self.zoom_in_shortcut.activated.connect(lambda: self.apply_scale(self.scale_factor + 0.12))
-        self.zoom_in_shortcut2 = QShortcut(QKeySequence("Meta++"), self)
+        self.zoom_in_shortcut2 = QShortcut(QKeySequence(f"{meta_mod}++"), self)
         self.zoom_in_shortcut2.activated.connect(lambda: self.apply_scale(self.scale_factor + 0.12))
 
-        self.zoom_out_shortcut = QShortcut(QKeySequence("Meta+-"), self)
+        self.zoom_out_shortcut = QShortcut(QKeySequence(f"{meta_mod}+-"), self)
         self.zoom_out_shortcut.activated.connect(lambda: self.apply_scale(self.scale_factor - 0.12))
 
-        self.zoom_reset_shortcut = QShortcut(QKeySequence("Meta+0"), self)
+        self.zoom_reset_shortcut = QShortcut(QKeySequence(f"{meta_mod}+0"), self)
         self.zoom_reset_shortcut.activated.connect(lambda: self.apply_scale(1.0))
 
         self.esc_shortcut = QShortcut(QKeySequence("Escape"), self)
         self.esc_shortcut.activated.connect(self.hide_input_bar)
 
-        self.global_hotkey = MacGlobalHotKey(self.toggle_input_bar)
+        if sys.platform == "darwin":
+            self.global_hotkey = MacGlobalHotKey(self.toggle_input_bar)
+        elif sys.platform == "win32":
+            self.global_hotkey = WinGlobalHotKey(self.toggle_input_bar)
+        else:
+            self.global_hotkey = None
 
         if QSystemTrayIcon.isSystemTrayAvailable():
             self.tray = QSystemTrayIcon(self)
             tray_pix = self.sprite.pixmaps.get("idle")
             if tray_pix:
                 self.tray.setIcon(QIcon(tray_pix))
-            self.tray.setToolTip("Frieren Desk Companion (Cmd+Shift+Space)")
+            self.tray.setToolTip(f"Frieren Desk Companion ({hotkey_label})")
 
             menu = QMenu()
-            act_toggle = QAction("Munculkan / Fokus Input (Cmd+Shift+Space)", self)
+            act_toggle = QAction(f"Munculkan / Fokus Input ({hotkey_label})", self)
             act_toggle.triggered.connect(self.toggle_input_bar)
             menu.addAction(act_toggle)
 
