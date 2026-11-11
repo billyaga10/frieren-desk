@@ -563,7 +563,12 @@ class FrierenSpriteWidget(QWidget):
             )
             self.pixmaps[state] = pix
             mask = pix.mask()
-            self.alpha_masks[state] = QRegion(mask) if not mask.isNull() else QRegion(self.rect())
+            if not mask.isNull():
+                px = (self.width() - pix.width()) // 2
+                py = self.height() - pix.height()
+                self.alpha_masks[state] = QRegion(mask).translated(px, py)
+            else:
+                self.alpha_masks[state] = QRegion(self.rect())
 
     def set_minimized_mode(self, minimized: bool) -> None:
         if self.is_minimized == minimized:
@@ -2396,15 +2401,29 @@ class FrierenDeskWindow(QWidget):
         local_cursor = self.mapFromGlobal(QCursor.pos())
         inside_interactive = region.contains(local_cursor)
 
-        transparent_for_input = bool(self.windowFlags() & Qt.WindowType.WindowTransparentForInput)
-        if not inside_interactive and not self.input_box.hasFocus():
-            if not transparent_for_input:
-                self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, True)
-                self.show()
+        should_clickthrough = not inside_interactive and not self.input_box.hasFocus()
+
+        if sys.platform == "win32":
+            hwnd = int(self.winId())
+            GWL_EXSTYLE = -20
+            WS_EX_TRANSPARENT = 0x00000020
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongPtrW(hwnd, GWL_EXSTYLE)
+            is_transparent = bool(style & WS_EX_TRANSPARENT)
+            if should_clickthrough and not is_transparent:
+                user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT)
+            elif not should_clickthrough and is_transparent:
+                user32.SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style & ~WS_EX_TRANSPARENT)
         else:
-            if transparent_for_input:
-                self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, False)
-                self.show()
+            transparent_for_input = bool(self.windowFlags() & Qt.WindowType.WindowTransparentForInput)
+            if should_clickthrough:
+                if not transparent_for_input:
+                    self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, True)
+                    self.show()
+            else:
+                if transparent_for_input:
+                    self.setWindowFlag(Qt.WindowType.WindowTransparentForInput, False)
+                    self.show()
 
     def _set_manual_emotion(self, emotion_key: str) -> None:
         self.bubble.set_emotion(emotion_key)
